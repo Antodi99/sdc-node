@@ -1,6 +1,7 @@
 import fsSync from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { emit } from "../sockets/io.js"
 import { createSchema, updateSchema } from '../validators/articleSchemas.js'
 import { readArticle, saveArticle, getNextId } from '../services/articles.js'
 import { dataDir, uploadDir } from '../config/index.js'
@@ -182,7 +183,7 @@ export async function updateArticle(req, res, next) {
     await saveArticle(article);
 
     // Notify via WS
-    req.io.emit("article-updated", {
+    emit("article-updated", {
       type: "updated",
       id,
       title: article.title,

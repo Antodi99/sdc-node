@@ -1,53 +1,50 @@
-import 'dotenv/config'
-import express from 'express'
-import cors from 'cors'
-import morgan from 'morgan'
-import http from 'http'
-import { createIO } from './sockets/io.js'
-import { ORIGIN, PORT, uploadDir } from './config/index.js'
-import { ensureDirs } from './utils/ensureDirs.js'
-import articleRoutes from './routes/articles.js'
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import morgan from "morgan";
+import http from "http";
+
+import { initSocket } from "./sockets/io.js";
+import { ORIGIN, PORT, uploadDir } from "./config/index.js";
+import { ensureDirs } from "./utils/ensureDirs.js";
+import articleRoutes from "./routes/articles.js";
 
 // Ensure directories
-ensureDirs()
+ensureDirs();
 
-// Create server + IO first
-const app = express()
-const server = http.createServer(app)
-const io = createIO(server)
+// Create HTTP + Socket server
+const app = express();
+const server = http.createServer(app);
 
-// Attach io
-app.use((req, _res, next) => {
-  req.io = io
-  next()
-})
+// Initialize socket.io
+initSocket(server);
 
 // Middleware
-app.use(cors({ origin: ORIGIN }))
-app.use(express.json({ limit: '2mb' }))
-app.use(morgan('dev'))
-app.use('/uploads', express.static(uploadDir))
+app.use(cors({ origin: ORIGIN }));
+app.use(express.json({ limit: "2mb" }));
+app.use(morgan("dev"));
+app.use("/uploads", express.static(uploadDir));
 
-// Health check
-app.get('/api/health', (_req, res) =>
+// Healthcheck
+app.get("/api/health", (_req, res) =>
   res.json({ ok: true, time: new Date().toISOString() })
-)
+);
 
 // API routes
-app.use('/api/articles', articleRoutes)
+app.use("/api/articles", articleRoutes);
 
-// 404 handler
+// 404
 app.use((req, _res, next) => {
-  next({ status: 404, message: `Not found: ${req.method} ${req.originalUrl}` })
-})
+  next({ status: 404, message: `Not found: ${req.method} ${req.originalUrl}` });
+});
 
 // Error handler
 app.use((err, _req, res, _next) => {
-  const status = err.status || 500
-  res.status(status).json({ error: { message: err.message, status } })
-})
+  const status = err.status || 500;
+  res.status(status).json({ error: { message: err.message, status } });
+});
 
 // Start server
 server.listen(PORT, () =>
   console.log(`API running on http://localhost:${PORT}`)
-)
+);
