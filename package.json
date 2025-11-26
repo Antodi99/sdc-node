@@ -1,0 +1,17 @@
+{
+  "name": "articles-dark-app",
+  "private": true,
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "install:all": "npm i && npm --prefix server i && npm --prefix client i",
+    "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "start": "npm --prefix server run start",
+    "build": "npm --prefix client run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
