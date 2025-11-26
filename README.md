@@ -45,7 +45,13 @@ npm run install:all
 cp server/.env.example server/.env
 cp client/.env.example client/.env
 
-# 3. Run both FE and BE in development mode
+# 3. Start Docker services
+npm run docker:up
+
+# 4. Run database migrations
+npm run db:migrate
+
+# 5. Run both FE and BE in development mode
 npm run dev
 ```
 

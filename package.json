@@ -1,5 +1,5 @@
 {
-  "name": "articles-dark-app",
+  "name": "articles-app",
   "private": true,
   "workspaces": [
     "server",
@@ -9,7 +9,12 @@
     "install:all": "npm i && npm --prefix server i && npm --prefix client i",
     "dev": "concurrently \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
     "start": "npm --prefix server run start",
-    "build": "npm --prefix client run build"
+    "build": "npm --prefix client run build",
+    "docker:up": "cd server && docker compose up -d",
+    "db:migrate": "cd server && npx sequelize-cli db:migrate",
+    "db:migrate:undo": "cd server && npx sequelize-cli db:migrate:undo",
+    "db:migrate:undo:all": "cd server &&npx sequelize-cli db:migrate:undo:all",
+    "db:migration:create": "cd server && npx sequelize-cli migration:generate --name"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
