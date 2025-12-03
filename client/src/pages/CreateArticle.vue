@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import axios from "../plugins/axios";
 import { QuillEditor } from "@vueup/vue-quill";
@@ -11,24 +11,37 @@ const files = ref([]);
 const error = ref(null);
 const loading = ref(false);
 
+const workspaces = ref([]);
+const workspaceId = ref(null);
+
+async function loadWorkspaces() {
+  const { data } = await axios.get("/workspaces");
+  workspaces.value = data;
+  if (!workspaceId.value && data.length) {
+    workspaceId.value = data[0].id;
+  }
+}
+
+onMounted(loadWorkspaces);
+
 function chooseFiles(e) {
-  error.value = ''
+  error.value = "";
   const selected = Array.from(e.target.files);
-
   const allowed = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
-  const invalid = selected.filter((f) => !allowed.includes(f.type));
-
-  if (invalid.length) {
-    error.value = "Only JPG, PNG, GIF or PDF files allowed.";
+  const bad = selected.find((f) => !allowed.includes(f.type));
+  if (bad) {
+    error.value = "Only JPG, PNG, GIF or PDF allowed.";
     return;
   }
-
-  if (files.value.length + selected.length > 10) {
-    error.value = "Maximum 10 attachments allowed.";
-    return;
-  }
-
-  files.value.push(...selected);
+  files.value.push(
+    ...selected.map((f) => ({
+      file: f,
+      name: f.name,
+      size: f.size,
+      type: f.type,
+    }))
+  );
+  e.target.value = "";
 }
 
 function removeFile(idx) {
@@ -43,20 +56,18 @@ function previewFile(file) {
 }
 
 async function submit() {
-  error.value = null;
-  if (!title.value.trim() || !content.value.trim()) {
-    error.value = "Title and content are required.";
-    return;
-  }
-
   loading.value = true;
+  error.value = null;
 
   try {
     const fd = new FormData();
     fd.append("title", title.value);
     fd.append("content", content.value);
+    fd.append("workspaceId", workspaceId.value);
 
-    for (const f of files.value) fd.append("files", f);
+    for (const f of files.value) {
+      fd.append("files", f.file);
+    }
 
     const { data } = await axios.post("/articles", fd, {
       headers: { "Content-Type": "multipart/form-data" },
@@ -74,25 +85,37 @@ async function submit() {
 <template>
   <section class="grid">
     <div class="card">
+      <router-link class="button secondary" to="/">← Back</router-link>
       <h2>Create Article</h2>
 
       <p v-if="error" class="error">{{ error }}</p>
 
       <label>Title</label>
-      <input v-model="title" placeholder="Title" />
+      <input v-model="title" />
+
+      <label>Workspace</label>
+      <select v-model="workspaceId">
+        <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+          {{ ws.label }}
+        </option>
+      </select>
 
       <label>Content</label>
       <QuillEditor v-model:content="content" contentType="html" theme="snow" />
 
-      <!-- Attachments -->
-      <label style="margin-top: 1rem">Attachments</label>
+      <label>Attachments</label>
       <input type="file" multiple @change="chooseFiles" />
 
-      <!-- File list -->
       <div v-if="files.length" class="list-wrap">
         <div v-for="(f, idx) in files" :key="idx" class="file-row">
-          <img v-if="previewFile(f)" :src="previewFile(f)" class="thumb" />
-          <span class="fname">{{ f.name }}</span>
+          <img
+            v-if="previewFile(f.file)"
+            :src="previewFile(f.file)"
+            class="thumb"
+          />
+          <div class="fname">
+            {{ f.name }} ({{ (f.size / 1024).toFixed(1) }} KB)
+          </div>
           <button class="remove" @click="removeFile(idx)">
             <svg
               xmlns="http://www.w3.org/2000/svg"

@@ -27,6 +27,8 @@ onMounted(() => {
       notify(
         `Attachment added to "${msg.title}": ${msg.attachment.originalName}`
       );
+    } else if (msg.type === "deleted") {
+      notify(`Deleted article #${msg.id}`);
     }
   });
 });
@@ -43,12 +45,15 @@ onBeforeUnmount(() => {
       <nav class="nav">
         <router-link to="/">List</router-link>
         <router-link to="/create">Create</router-link>
+        <router-link to="/workspaces">Workspaces</router-link>
       </nav>
     </div>
   </header>
 
   <div class="notifs">
-    <div v-for="n in notifications" :key="n.id" class="notif">{{ n.text }}</div>
+    <div v-for="n in notifications" :key="n.id" class="notif">
+      {{ n.text }}
+    </div>
   </div>
 
   <main class="container">

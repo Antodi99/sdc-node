@@ -14,7 +14,8 @@
     "db:migrate": "cd server && npx sequelize-cli db:migrate",
     "db:migrate:undo": "cd server && npx sequelize-cli db:migrate:undo",
     "db:migrate:undo:all": "cd server &&npx sequelize-cli db:migrate:undo:all",
-    "db:migration:create": "cd server && npx sequelize-cli migration:generate --name"
+    "db:migration:create": "cd server && npx sequelize-cli migration:generate --name",
+    "db:migrate:seed": "cd server && npx sequelize-cli db:seed:all"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"
