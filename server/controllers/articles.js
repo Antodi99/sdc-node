@@ -3,94 +3,127 @@ import fs from 'fs/promises'
 import path from 'path'
 import { emit } from "../sockets/io.js"
 import { createSchema, updateSchema } from '../validators/articleSchemas.js'
-import { readArticle, saveArticle, getNextId } from '../services/articles.js'
-import { dataDir, uploadDir } from '../config/index.js'
+import { uploadDir } from '../config/index.js'
+import { serializeArticle } from "../serializers/articleSerializer.js";
+import db from "../database/models/index.js";
+
+const { Article, Workspace, Attachment, Comment } = db;
 
 export async function listArticles(req, res, next) {
   try {
-    const files = await fs.readdir(dataDir)
-    const out = []
-
-    for (const f of files) {
-      if (!f.endsWith('.json')) continue
-      try {
-        const raw = await fs.readFile(path.join(dataDir, f), 'utf-8')
-        const { id, title, createdAt } = JSON.parse(raw)
-        out.push({ id, title, createdAt })
-      } catch { }
+    const where = {};
+    if (req.query.workspaceId) {
+      where.workspaceId = Number(req.query.workspaceId);
     }
 
-    out.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    res.json(out)
-  } catch (e) { next(e) }
+    const articles = await Article.findAll({
+      where,
+      include: [
+        {
+          model: Workspace,
+          as: "workspace",
+          attributes: ["id", "name", "label"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "title", "createdAt", "updatedAt", "workspaceId"],
+    });
+
+    res.json(articles);
+  } catch (e) {
+    next(e);
+  }
 }
 
 export async function getArticle(req, res, next) {
   try {
-    const id = req.params.id
-    if (!/^\d+$/.test(id))
-      return next({ status: 400, message: 'Invalid id' })
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return next({ status: 400, message: "Invalid id" });
+    }
 
-    const article = await readArticle(id)
-    res.json(article)
+    const article = await Article.findByPk(id, {
+      include: [
+        { model: Workspace, as: "workspace", attributes: ["id", "name", "label"] },
+        { model: Attachment, as: "attachments" },
+        {
+          model: Comment,
+          as: "comments",
+          order: [["createdAt", "ASC"]],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    if (!article) {
+      return next({ status: 404, message: "Nnot found" });
+    }
+
+    return res.json(serializeArticle(article));
   } catch (e) {
-    if (e.code === 'ENOENT')
-      return next({ status: 404, message: 'Not found' })
-    next(e)
+    next(e);
   }
 }
 
 export async function createArticle(req, res, next) {
   try {
     const { error, value } = createSchema.validate(req.body);
-    if (error) return next({ status: 400, message: error.details[0].message });
-
-    const files = req.files || [];
-
-    if (files.length > 10) {
-      return next({ status: 400, message: "Maximum 10 attachments allowed" });
+    if (error) {
+      return next({ status: 400, message: error.message });
     }
 
-    const id = await getNextId();
-    const now = new Date().toISOString();
+    const { title, content, workspaceId } = value;
+    const workspace = await Workspace.findByPk(workspaceId);
+    if (!workspace) {
+      return next({ status: 400, message: "Invalid workspaceId" });
+    }
 
-    const articleFolder = path.join(uploadDir, String(id));
+    const now = new Date();
+
+    // Create article (without attachments yet)
+    const article = await Article.create({
+      title,
+      content,
+      workspaceId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // Move files from /uploads/tmp to /uploads/:articleId
+    const files = req.files || [];
+    const articleFolder = path.join(uploadDir, String(article.id));
     if (!fsSync.existsSync(articleFolder)) {
       fsSync.mkdirSync(articleFolder, { recursive: true });
     }
 
-    const attachments = [];
-
-    // Upload article attachments
     for (const f of files) {
-      const oldPath = f.path;
+      const oldPath = f.path; // in /uploads/tmp
       const newFileName = f.filename;
       const newPath = path.join(articleFolder, newFileName);
 
       fsSync.renameSync(oldPath, newPath);
 
-      attachments.push({
-        filename: newFileName,
-        originalName: f.originalname,
+      await Attachment.create({
+        articleId: article.id,
+        serverFilename: newFileName,
+        originalFilename: f.originalname,
         mimeType: f.mimetype,
-        url: `/uploads/${id}/${newFileName}`,
-        uploadedAt: now
+        uploadedAt: now,
       });
     }
 
-    // Construct article JSON
-    const record = {
-      id,
-      title: value.title,
-      content: value.content,
-      createdAt: now,
-      updatedAt: now,
-      attachments
-    };
+    const fullArticle = await Article.findByPk(article.id, {
+      include: [{ model: Attachment, as: "attachments" }, { model: Workspace, as: "workspace" }],
+    });
 
-    await saveArticle(record);
+    emit("article-created", {
+      type: "created",
+      id: article.id,
+      title: article.title,
+      timestamp: now.toISOString(),
+    });
 
-    res.status(201).json(record);
+    res.status(201).json(fullArticle);
   } catch (e) {
     next(e);
   }
@@ -98,100 +131,96 @@ export async function createArticle(req, res, next) {
 
 export async function updateArticle(req, res, next) {
   try {
-    const id = req.params.id;
-    const { title, content, deleted = "[]" } = req.body;
-
-    // Load existing article
-    const article = await readArticle(id);
-
-    // Ensure article attachments array exists
-    if (!Array.isArray(article.attachments)) {
-      article.attachments = [];
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return next({ status: 400, message: "Invalid id" });
     }
 
-    let removedList = [];
-    try {
-      removedList = JSON.parse(deleted);
-      if (!Array.isArray(removedList)) throw new Error();
-    } catch {
-      return next({
-        status: 400,
-        message: "Invalid deleted list format (must be array JSON).",
-      });
+    const { error, value } = updateSchema.validate(req.body);
+    if (error) {
+      return next({ status: 400, message: error.message });
     }
 
-    //  Delete files from disk
+    const article = await Article.findByPk(id, {
+      include: [{ model: Attachment, as: "attachments" }],
+    });
+
+    if (!article) {
+      return next({ status: 404, message: "Article not found" });
+    }
+
+    // Update fields
+    if (value.title) article.title = value.title;
+    if (value.content) article.content = value.content;
+    if (value.workspaceId) {
+      const ws = await Workspace.findByPk(value.workspaceId);
+      if (!ws) {
+        return next({ status: 400, message: "Invalid workspaceId" });
+      }
+      article.workspaceId = value.workspaceId;
+    }
+
+    const now = new Date();
+    article.updatedAt = now;
+
+    // Handle deleted attachments
     const articleFolder = path.join(uploadDir, String(id));
+    if (value.deleted) {
+      let removedList = [];
+      try {
+        removedList = JSON.parse(value.deleted);
+        if (!Array.isArray(removedList)) throw new Error();
+      } catch {
+        return next({
+          status: 400,
+          message: "Invalid deleted list format (must be array JSON).",
+        });
+      }
 
-    for (const filename of removedList) {
-      const filePath = path.join(articleFolder, filename);
-
-      console.log(fsSync.existsSync(filePath))
-      if (fsSync.existsSync(filePath)) {
+      for (const filename of removedList) {
+        const filePath = path.join(articleFolder, filename);
         try {
-          fsSync.unlinkSync(filePath);
+          await fs.unlink(filePath);
         } catch (err) {
-          console.warn("Failed to delete file:", filePath, err.message);
+          if (err.code !== "ENOENT") throw err;
         }
+
+        await Attachment.destroy({
+          where: { articleId: id, serverFilename: filename },
+        });
       }
     }
 
-    // Remove deleted from metadata JSON
-    article.attachments = article.attachments.filter(
-      (att) => !removedList.includes(att.filename)
-    );
-
-    // Add new files
-    const incomingFiles = req.files || [];
-
-    // Enforce 10 max attachments
-    if (article.attachments.length + incomingFiles.length > 10) {
-      return next({
-        status: 400,
-        message: "Maximum 10 attachments allowed per article",
-      });
-    }
-    // Ensure folder exists
-    if (!fsSync.existsSync(articleFolder)) {
-      fsSync.mkdirSync(articleFolder, { recursive: true });
-    }
-
-    const now = new Date().toISOString();
-
-    for (const f of incomingFiles) {
-      const newFilename = `${Date.now()}-${f.originalname.replace(/[^a-zA-Z0-9_.-]/g, "_")}`;
-      const newPath = path.join(articleFolder, newFilename);
-
-      // Move from tmp -> /uploads/:id/
-      fsSync.renameSync(f.path, newPath);
-
-      article.attachments.push({
-        filename: newFilename,
-        originalName: f.originalname,
+    // New uploads (multer already saved in /uploads/:id)
+    const files = req.files || [];
+    for (const f of files) {
+      await Attachment.create({
+        articleId: id,
+        serverFilename: f.filename,
+        originalFilename: f.originalname,
         mimeType: f.mimetype,
-        url: `/uploads/${id}/${newFilename}`,
         uploadedAt: now,
       });
     }
 
-    //  Update text fields
-    if (title) article.title = title;
-    if (content) article.content = content;
+    await article.save();
 
-    article.updatedAt = now;
+    const fullArticle = await Article.findByPk(id, {
+      include: [
+        { model: Attachment, as: "attachments" },
+        { model: Comment, as: "comments" },
+        { model: Workspace, as: "workspace", attributes: ["id", "name", "label"] },
+      ],
+    });
 
-    await saveArticle(article);
-
-    // Notify via WS
     emit("article-updated", {
       type: "updated",
       id,
       title: article.title,
-      timestamp: now,
+      timestamp: now.toISOString(),
     });
 
-    res.json(article);
-
+    res.json(fullArticle);
   } catch (e) {
     next(e);
   }
@@ -199,41 +228,35 @@ export async function updateArticle(req, res, next) {
 
 export async function deleteArticle(req, res, next) {
   try {
-    const id = req.params.id;
-
-    if (!/^\d+$/.test(id)) {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
       return next({ status: 400, message: "Invalid id" });
     }
 
-    // Load article first
-    let article;
-    try {
-      article = await readArticle(id);
-    } catch {
+    const article = await Article.findByPk(id);
+    if (!article) {
       return next({ status: 404, message: "Article not found" });
     }
 
+    // Remove files from /uploads/:id
     const articleFolder = path.join(uploadDir, String(id));
-
-    // Delete article attachments
-    if (fsSync.existsSync(articleFolder)) {
-      try {
-        fsSync.rmSync(articleFolder, { recursive: true, force: true });
-      } catch (err) {
-        console.warn("Failed to delete folder:", articleFolder, err.message);
-      }
-    }
-
-    // Delete article JSON file
-    const p = path.join(dataDir, `${id}.json`);
     try {
-      await fs.unlink(p);
-    } catch (err) {
-      if (err.code === "ENOENT") {
-        return next({ status: 404, message: "Article not found" });
+      const files = await fs.readdir(articleFolder);
+      for (const f of files) {
+        await fs.unlink(path.join(articleFolder, f));
       }
-      throw err;
+      await fs.rmdir(articleFolder);
+    } catch (err) {
+      if (err.code !== "ENOENT") throw err;
     }
+
+    await article.destroy();
+
+    emit("article-deleted", {
+      type: "deleted",
+      id,
+      timestamp: new Date().toISOString(),
+    });
 
     res.status(204).send();
   } catch (e) {

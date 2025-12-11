@@ -16,28 +16,41 @@ const deletedAttachments = ref([]);
 const error = ref("");
 const loading = ref(false);
 
+const workspaces = ref([]);
+const workspaceId = ref(null);
+
 const MAX = 10;
 
 const totalCount = computed(
   () => existingAttachments.value.length + newFiles.value.length
 );
 
-const canAddMore = computed(() => {
-  console.log(totalCount.value);
-  return totalCount.value < MAX;
-});
+async function loadWorkspaces() {
+  const { data } = await axios.get("/workspaces");
+  workspaces.value = data;
+}
+
+async function load() {
+  error.value = "";
+  try {
+    await loadWorkspaces();
+
+    const { data } = await axios.get(`/articles/${route.params.id}`);
+    title.value = data.title;
+    content.value = data.content;
+    existingAttachments.value = data.attachments || [];
+    workspaceId.value = data.workspaceId;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message;
+  }
+}
 
 function chooseFiles(e) {
-  if (!canAddMore.value) {
-    error.value = `You can attach max ${MAX} files`;
-    return;
-  }
-
+  error.value = "";
   const selected = Array.from(e.target.files);
   const allowed = ["image/jpeg", "image/png", "image/gif", "application/pdf"];
-
-  const invalid = selected.filter((f) => !allowed.includes(f.type));
-  if (invalid.length) {
+  const bad = selected.find((f) => !allowed.includes(f.type));
+  if (bad) {
     error.value = "Only JPG, PNG, GIF or PDF allowed.";
     return;
   }
@@ -47,17 +60,25 @@ function chooseFiles(e) {
     return;
   }
 
-  newFiles.value.push(...selected);
+  newFiles.value.push(
+    ...selected.map((f) => ({
+      file: f,
+      name: f.name,
+      size: f.size,
+      type: f.type,
+    }))
+  );
+  e.target.value = "";
 }
 
 function removeNewFile(idx) {
   newFiles.value.splice(idx, 1);
 }
 
-function removeExistingFile(fn) {
-  deletedAttachments.value.push(fn);
+function removeExisting(att) {
+  deletedAttachments.value.push(att);
   existingAttachments.value = existingAttachments.value.filter(
-    (a) => a.filename !== fn
+    (a) => a.fileName !== att.fileName
   );
 }
 
@@ -66,29 +87,26 @@ function previewFile(file) {
   return null;
 }
 
-async function load() {
-  try {
-    const { data } = await axios.get(`/articles/${route.params.id}`);
-    title.value = data.title;
-    content.value = data.content;
-    existingAttachments.value = data.attachments || [];
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e.message;
-  }
+function isImage(att) {
+  return att.mimeType?.startsWith("image/");
 }
 
 async function save() {
-  error.value = "";
   loading.value = true;
+  error.value = "";
 
   try {
     const fd = new FormData();
     fd.append("title", title.value);
     fd.append("content", content.value);
-    fd.append("deleted", JSON.stringify(deletedAttachments.value));
+    fd.append("workspaceId", workspaceId.value);
+    fd.append(
+      "deleted",
+      JSON.stringify(deletedAttachments.value.map((a) => a.fileName))
+    );
 
     for (const f of newFiles.value) {
-      fd.append("files", f);
+      fd.append("files", f.file);
     }
 
     await axios.put(`/articles/${route.params.id}`, fd, {
@@ -109,6 +127,12 @@ onMounted(load);
 <template>
   <section class="grid">
     <div class="card">
+      <router-link
+        class="button secondary"
+        :to="`/articles/${route.params.id}`"
+      >
+        Back
+      </router-link>
       <h2>Edit Article</h2>
 
       <p v-if="error" class="error">{{ error }}</p>
@@ -116,29 +140,30 @@ onMounted(load);
       <label>Title</label>
       <input v-model="title" />
 
+      <label>Workspace</label>
+      <select v-model="workspaceId">
+        <option v-for="ws in workspaces" :key="ws.id" :value="ws.id">
+          {{ ws.label }}
+        </option>
+      </select>
+
       <label>Content</label>
       <QuillEditor v-model:content="content" theme="snow" contentType="html" />
 
       <!-- EXISTING FILES -->
-      <div v-if="existingAttachments.length" class="files-wrap">
+      <div v-if="existingAttachments.length" class="list-wrap">
         <h4>Existing attachments</h4>
 
         <div
           v-for="att in existingAttachments"
-          :key="att.filename"
+          :key="att.fileName"
           class="file-row"
         >
-          <img
-            v-if="att.mimeType.startsWith('image/')"
-            :src="att.url"
-            class="thumb"
-          />
-
-          <a :href="att.url" target="_blank" class="fname">
+          <img v-if="isImage(att)" :src="att.url" class="thumb" />
+          <a class="fname" :href="att.url" target="_blank">
             {{ att.originalName }}
           </a>
-
-          <button class="remove" @click="removeExistingFile(att.filename)">
+          <button class="remove" @click="removeExisting(att)">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="16"
@@ -156,24 +181,22 @@ onMounted(load);
           </button>
         </div>
       </div>
+      <p v-else class="meta">No attachments yet.</p>
 
-      <!-- ADD NEW -->
-      <label style="margin-top: 1rem">Add attachments</label>
-      <input
-        type="file"
-        multiple
-        @change="chooseFiles"
-        :disabled="!canAddMore"
-      />
-      <p v-if="!canAddMore" class="error">Max {{ MAX }} attachments reached</p>
+      <label>Add new attachments</label>
+      <input type="file" multiple @change="chooseFiles" />
+      <p class="meta">Total attachments: {{ totalCount }} / {{ MAX }}</p>
 
-      <!-- PREVIEW NEW FILES -->
-      <div v-if="newFiles.length" class="files-wrap">
+      <div v-if="newFiles.length" class="list-wrap">
         <div v-for="(f, idx) in newFiles" :key="idx" class="file-row">
-          <img v-if="previewFile(f)" :src="previewFile(f)" class="thumb" />
-
-          <span class="fname">{{ f.name }}</span>
-
+          <img
+            v-if="previewFile(f.file)"
+            :src="previewFile(f.file)"
+            class="thumb"
+          />
+          <div class="fname">
+            {{ f.name }} ({{ (f.size / 1024).toFixed(1) }} KB)
+          </div>
           <button class="remove" @click="removeNewFile(idx)">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -215,20 +238,21 @@ onMounted(load);
   color: red;
   margin-top: 5px;
 }
-.files-wrap {
+
+.list-wrap {
   margin-top: 1rem;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
+
 .file-row {
   display: flex;
   align-items: center;
-  background: #0d1117;
-  border: 1px solid #242a36;
-  padding: 6px;
-  border-radius: 6px;
   gap: 10px;
+  padding: 6px 8px;
+  background: #0d1117;
+  border-radius: 4px;
 }
 .thumb {
   width: 48px;

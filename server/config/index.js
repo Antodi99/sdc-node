@@ -8,5 +8,4 @@ const serverDir = path.resolve(configDir, '..')
 export const PORT = process.env.PORT
 export const ORIGIN = process.env.ORIGIN
 
-export const dataDir = path.join(serverDir, 'data')
 export const uploadDir = path.join(serverDir, 'uploads')

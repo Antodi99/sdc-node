@@ -51,7 +51,10 @@ npm run docker:up
 # 4. Run database migrations
 npm run db:migrate
 
-# 5. Run both FE and BE in development mode
+# 5. Run database seeder
+npm run db:migrate:seed
+
+# 6. Run both FE and BE in development mode
 npm run dev
 ```
 

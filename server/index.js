@@ -8,6 +8,8 @@ import { initSocket } from "./sockets/io.js";
 import { ORIGIN, PORT, uploadDir } from "./config/index.js";
 import { ensureDirs } from "./utils/ensureDirs.js";
 import articleRoutes from "./routes/articles.js";
+import commentRoutes from "./routes/comments.js";
+import workspaceRoutes from "./routes/workspaces.js";
 
 // Ensure directories
 ensureDirs();
@@ -32,6 +34,8 @@ app.get("/api/health", (_req, res) =>
 
 // API routes
 app.use("/api/articles", articleRoutes);
+app.use("/api/comments", commentRoutes);
+app.use("/api/workspaces", workspaceRoutes);
 
 // 404
 app.use((req, _res, next) => {
