@@ -17,9 +17,38 @@ const editingCommentId = ref(null);
 const editingContent = ref("");
 const editingLoading = ref(false);
 
+const versions = ref([]);
+const currentVersion = ref(null);
+
 async function load() {
   try {
     const { data } = await axios.get(`/articles/${route.params.id}`);
+    article.value = data;
+    comments.value = data.comments || [];
+    currentVersion.value = data.viewVersion;
+  } catch (e) {
+    error.value = e?.response?.data?.error?.message || e.message;
+  }
+}
+
+async function loadVersions() {
+  try {
+    const { data } = await axios.get(`/articles/${route.params.id}/versions`);
+    versions.value = data.versions || [];
+  } catch {}
+}
+
+async function viewVersion() {
+  if (!currentVersion.value) return;
+
+  if (currentVersion.value === article.value.latestVersion) {
+    return load();
+  }
+
+  try {
+    const { data } = await axios.get(
+      `/articles/${route.params.id}/versions/${currentVersion.value}`
+    );
     article.value = data;
     comments.value = data.comments || [];
   } catch (e) {
@@ -115,7 +144,10 @@ async function saveEditComment(id) {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  await load();
+  await loadVersions();
+});
 </script>
 
 <template>
@@ -126,14 +158,34 @@ onMounted(load);
       <h2 v-if="article">{{ article.title }}</h2>
 
       <div class="meta" v-if="article">
-        #{{ article.id }} · {{ new Date(article.createdAt).toLocaleString() }}
-        <span v-if="article.workspace"> · {{ article.workspace.label }} </span>
+        Version: v{{ article.viewVersion }} ·
+        {{ new Date(article.createdAt).toLocaleString() }}
+        <span v-if="article.workspace">
+          · Workspace: {{ article.workspace.label }}
+        </span>
+      </div>
+
+      <div v-if="versions.length" class="version-select-wrap">
+        <select
+          v-model.number="currentVersion"
+          @change="viewVersion"
+          class="version-select"
+        >
+          <option v-for="v in versions" :value="v.version" :key="v.version">
+            v{{ v.version }}
+          </option>
+        </select>
       </div>
 
       <div style="margin-top: 1rem">
-        <router-link class="button" :to="`/articles/${article?.id}/edit`">
+        <router-link
+          v-if="article?.viewVersion === article?.latestVersion"
+          class="button"
+          :to="`/articles/${article?.id}/edit`"
+        >
           Edit
         </router-link>
+
         <button class="button secondary" style="margin-left: 8px" @click="del">
           Delete
         </button>
@@ -154,25 +206,28 @@ onMounted(load);
         <div class="list-wrap">
           <div
             v-for="att in article.attachments"
-            :key="att.fileName || att.filename || att.id"
+            :key="att.id"
             class="file-row"
           >
             <img v-if="isImage(att)" :src="att.url" class="thumb" />
 
             <a class="fname link" :href="att.url" target="_blank">
-              {{ att.originalName || att.originalFilename }}
+              {{ att.originalName }}
             </a>
           </div>
         </div>
       </div>
 
-      <!-- Comments -->
       <div class="card" style="margin-top: 1.5rem">
         <h3>Comments</h3>
 
         <p v-if="commentError" class="error">{{ commentError }}</p>
 
-        <form @submit.prevent="submitComment" class="comment-form">
+        <form
+          v-if="article?.viewVersion === article?.latestVersion"
+          @submit.prevent="submitComment"
+          class="comment-form"
+        >
           <input v-model="author" placeholder="Your name (optional)" />
           <textarea
             v-model="newComment"
@@ -196,25 +251,18 @@ onMounted(load);
           <li v-for="c in comments" :key="c.id" class="comment">
             <div class="comment-header">
               <strong>{{ c.author || "Anonymous" }}</strong>
-              <span class="meta">
-                {{ new Date(c.createdAt).toLocaleString() }}
-                <span v-if="c.updatedAt && c.updatedAt !== c.createdAt">
-                  · edited
-                </span>
-              </span>
-              <div style="display: flex; gap: 0.5rem; align-items: center">
-                <button
-                  class="link small"
-                  type="button"
-                  @click="startEditComment(c)"
-                >
+              <span class="meta">{{
+                new Date(c.createdAt).toLocaleString()
+              }}</span>
+
+              <div
+                v-if="article?.viewVersion === article?.latestVersion"
+                style="display: flex; gap: 0.5rem; align-items: center"
+              >
+                <button class="link small" @click="startEditComment(c)">
                   Edit
                 </button>
-                <button
-                  class="link small"
-                  type="button"
-                  @click="deleteComment(c.id)"
-                >
+                <button class="link small" @click="deleteComment(c.id)">
                   Delete
                 </button>
               </div>
@@ -230,7 +278,6 @@ onMounted(load);
               <div style="margin-top: 0.25rem; display: flex; gap: 0.5rem">
                 <button
                   class="button small"
-                  type="button"
                   @click="saveEditComment(c.id)"
                   :disabled="editingLoading"
                 >
@@ -238,7 +285,6 @@ onMounted(load);
                 </button>
                 <button
                   class="button secondary small"
-                  type="button"
                   @click="cancelEditComment"
                   :disabled="editingLoading"
                 >
@@ -247,9 +293,7 @@ onMounted(load);
               </div>
             </div>
 
-            <div v-else class="comment-body">
-              {{ c.content }}
-            </div>
+            <div v-else class="comment-body">{{ c.content }}</div>
           </li>
         </ul>
       </div>
@@ -258,6 +302,21 @@ onMounted(load);
 </template>
 
 <style>
+.version-select-wrap {
+  margin-top: 0.75rem;
+}
+.version-select {
+  background: #161b22;
+  color: #c9d1d9;
+  padding: 6px 10px;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 14px;
+}
+.version-select:hover {
+  border-color: #58a6ff;
+}
+
 .error {
   color: red;
   margin-top: 5px;

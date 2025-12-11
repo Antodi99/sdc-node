@@ -14,9 +14,9 @@ export default (sequelize, DataTypes) => {
         onDelete: "CASCADE",
       });
 
-      Article.hasMany(models.Attachment, {
+      Article.hasMany(models.ArticleVersion, {
         foreignKey: "articleId",
-        as: "attachments",
+        as: "versions",
         onDelete: "CASCADE",
       });
     }
@@ -29,6 +29,11 @@ export default (sequelize, DataTypes) => {
       workspaceId: {
         type: DataTypes.INTEGER,
         allowNull: false,
+      },
+      currentVersion: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 1,
       },
     },
     {

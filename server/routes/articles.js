@@ -6,6 +6,8 @@ import {
   createArticle,
   updateArticle,
   deleteArticle,
+  listArticleVersions,
+  getArticleVersion,
 } from '../controllers/articles.js'
 import { createComment } from '../controllers/comments.js'
 
@@ -13,6 +15,9 @@ const router = Router()
 
 router.get('/', listArticles)
 router.get('/:id', getArticle)
+router.get('/:id/versions', listArticleVersions)
+router.get('/:id/versions/:version', getArticleVersion)
+
 router.post('/', uploadMany, createArticle)
 router.put('/:id', uploadMany, updateArticle)
 router.delete('/:id', deleteArticle)
