@@ -6,6 +6,13 @@ export default (sequelize, DataTypes) => {
       Attachment.belongsTo(models.Article, {
         foreignKey: "articleId",
         as: "article",
+        onDelete: "CASCADE",
+      });
+
+      Attachment.belongsTo(models.ArticleVersion, {
+        foreignKey: "articleVersionId",
+        as: "version",
+        onDelete: "CASCADE",
       });
     }
   }
@@ -15,6 +22,10 @@ export default (sequelize, DataTypes) => {
       articleId: {
         type: DataTypes.INTEGER,
         allowNull: false,
+      },
+      articleVersionId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
       },
       serverFilename: DataTypes.STRING,
       originalFilename: DataTypes.STRING,

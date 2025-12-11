@@ -6,7 +6,7 @@ export default (sequelize, DataTypes) => {
       Workspace.hasMany(models.Article, {
         foreignKey: "workspaceId",
         as: "articles",
-        onDelete: "CASCADE",
+        onDelete: "RESTRICT",
       });
     }
   }

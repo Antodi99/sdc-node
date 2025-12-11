@@ -6,6 +6,7 @@ export default (sequelize, DataTypes) => {
       Comment.belongsTo(models.Article, {
         foreignKey: "articleId",
         as: "article",
+        onDelete: "CASCADE",
       });
     }
   }
