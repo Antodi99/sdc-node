@@ -272,6 +272,8 @@ export async function updateArticle(req, res, next) {
 
     const now = new Date();
 
+    const prevVersionNum = article.currentVersion || 1;
+
     if (value.title) article.title = value.title;
     if (value.content) article.content = value.content;
     if (value.workspaceId) {
@@ -282,7 +284,7 @@ export async function updateArticle(req, res, next) {
       article.workspaceId = value.workspaceId;
     }
 
-    const newVersion = (article.currentVersion || 1) + 1;
+    const newVersion = prevVersionNum + 1;
 
     const version = await ArticleVersion.create({
       articleId: id,
@@ -298,8 +300,30 @@ export async function updateArticle(req, res, next) {
     article.updatedAt = now;
     await article.save();
 
-    // Handle deleted attachments
-    const articleFolder = path.join(uploadDir, String(id));
+    const prevVersion = await ArticleVersion.findOne({
+      where: { articleId: id, version: prevVersionNum },
+    });
+
+    if (prevVersion) {
+      const prevAttachments = await Attachment.findAll({
+        where: {
+          articleId: id,
+          articleVersionId: prevVersion.id,
+        },
+      });
+
+      for (const att of prevAttachments) {
+        await Attachment.create({
+          articleId: id,
+          articleVersionId: version.id,
+          serverFilename: att.serverFilename,
+          originalFilename: att.originalFilename,
+          mimeType: att.mimeType,
+          uploadedAt: att.uploadedAt,
+        });
+      }
+    }
+
     if (value.deleted) {
       let removedList = [];
       try {
@@ -313,15 +337,12 @@ export async function updateArticle(req, res, next) {
       }
 
       for (const filename of removedList) {
-        const filePath = path.join(articleFolder, filename);
-        try {
-          await fs.unlink(filePath);
-        } catch (err) {
-          if (err.code !== "ENOENT") throw err;
-        }
-
         await Attachment.destroy({
-          where: { articleId: id, serverFilename: filename },
+          where: {
+            articleId: id,
+            articleVersionId: version.id,
+            serverFilename: filename,
+          },
         });
       }
     }

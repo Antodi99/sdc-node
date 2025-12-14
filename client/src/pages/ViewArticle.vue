@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "../plugins/axios";
 
@@ -19,6 +19,10 @@ const editingLoading = ref(false);
 
 const versions = ref([]);
 const currentVersion = ref(null);
+
+const selectedVersion = computed(() => {
+  return versions.value.find((v) => v.version === currentVersion.value) || null;
+});
 
 async function load() {
   try {
@@ -158,8 +162,8 @@ onMounted(async () => {
       <h2 v-if="article">{{ article.title }}</h2>
 
       <div class="meta" v-if="article">
-        Version: v{{ article.viewVersion }} ·
-        {{ new Date(article.createdAt).toLocaleString() }}
+        Version: v{{ selectedVersion?.version }} ·
+        {{ new Date(selectedVersion?.createdAt).toLocaleString() }}
         <span v-if="article.workspace">
           · Workspace: {{ article.workspace.label }}
         </span>
