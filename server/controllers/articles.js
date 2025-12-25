@@ -7,7 +7,13 @@ import { uploadDir } from '../config/index.js'
 import { serializeArticle } from "../serializers/articleSerializer.js";
 import db from "../database/models/index.js";
 
-const { Article, Workspace, Attachment, Comment } = db;
+const { Article, Workspace, Attachment, Comment, ArticleVersion } = db;
+
+function applyVersion(article, version, attachments) {
+  article.setDataValue("title", version.title);
+  article.setDataValue("content", version.content);
+  article.setDataValue("attachments", attachments);
+}
 
 export async function listArticles(req, res, next) {
   try {
@@ -26,7 +32,7 @@ export async function listArticles(req, res, next) {
         },
       ],
       order: [["createdAt", "DESC"]],
-      attributes: ["id", "title", "createdAt", "updatedAt", "workspaceId"],
+      attributes: ["id", "title", "createdAt", "updatedAt", "workspaceId", "currentVersion"],
     });
 
     res.json(articles);
@@ -45,21 +51,116 @@ export async function getArticle(req, res, next) {
     const article = await Article.findByPk(id, {
       include: [
         { model: Workspace, as: "workspace", attributes: ["id", "name", "label"] },
-        { model: Attachment, as: "attachments" },
-        {
-          model: Comment,
-          as: "comments",
-          order: [["createdAt", "ASC"]],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
+        { model: Comment, as: "comments", order: [["createdAt", "ASC"]] }
+      ]
+    });
+    if (!article) {
+      return next({ status: 404, message: "Not found" });
+    }
+
+    const versionNum = article.currentVersion || 1;
+
+    const version = await ArticleVersion.findOne({
+      where: { articleId: id, version: versionNum }
+    });
+
+    if (!version) {
+      return next({ status: 404, message: "Version not found" });
+    }
+
+    const attachments = await Attachment.findAll({
+      where: { articleId: id, articleVersionId: version.id }
+    });
+
+    applyVersion(article, version, attachments);
+
+    return res.json({
+      ...serializeArticle(article),
+      viewVersion: versionNum,
+      latestVersion: versionNum,
+      isLatest: true,
+      readonly: false,
+    });
+
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listArticleVersions(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return next({ status: 400, message: "Invalid id" });
+    }
+
+    const article = await Article.findByPk(id);
+    if (!article) {
+      return next({ status: 404, message: "Article not found" });
+    }
+
+    const versions = await ArticleVersion.findAll({
+      where: { articleId: id },
+      order: [["version", "DESC"]],
+      attributes: ["id", "version", "title", "createdAt"],
+    });
+
+    res.json({
+      articleId: id,
+      latestVersion: article.currentVersion || 1,
+      versions,
+    });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getArticleVersion(req, res, next) {
+  try {
+    const id = Number(req.params.id);
+    const versionNum = Number(req.params.version);
+
+    if (!Number.isFinite(id) || !Number.isFinite(versionNum)) {
+      return next({ status: 400, message: "Invalid id or version" });
+    }
+
+    const article = await Article.findByPk(id, {
+      include: [
+        { model: Comment, as: "comments", order: [["createdAt", "ASC"]] }
+      ]
     });
 
     if (!article) {
-      return next({ status: 404, message: "Nnot found" });
+      return next({ status: 404, message: "Article not found" });
     }
 
-    return res.json(serializeArticle(article));
+    const version = await ArticleVersion.findOne({
+      where: { articleId: id, version: versionNum }
+    });
+
+    if (!version) {
+      return next({ status: 404, message: "Version not found" });
+    }
+
+    const workspace = await Workspace.findByPk(version.workspaceId, {
+      attributes: ["id", "name", "label"]
+    });
+
+    const attachments = await Attachment.findAll({
+      where: { articleId: id, articleVersionId: version.id }
+    });
+
+    applyVersion(article, version, attachments);
+
+    const latest = article.currentVersion || versionNum;
+    const json = serializeArticle(article);
+    json.workspace = workspace;
+    json.viewVersion = versionNum;
+    json.latestVersion = latest;
+    json.isLatest = versionNum === latest;
+    json.readonly = versionNum !== latest;
+
+    res.json(json);
   } catch (e) {
     next(e);
   }
@@ -85,6 +186,17 @@ export async function createArticle(req, res, next) {
       title,
       content,
       workspaceId,
+      currentVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const version = await ArticleVersion.create({
+      articleId: article.id,
+      version: 1,
+      title,
+      content,
+      workspaceId,
       createdAt: now,
       updatedAt: now,
     });
@@ -105,6 +217,7 @@ export async function createArticle(req, res, next) {
 
       await Attachment.create({
         articleId: article.id,
+        articleVersionId: version.id,
         serverFilename: newFileName,
         originalFilename: f.originalname,
         mimeType: f.mimetype,
@@ -112,9 +225,11 @@ export async function createArticle(req, res, next) {
       });
     }
 
-    const fullArticle = await Article.findByPk(article.id, {
-      include: [{ model: Attachment, as: "attachments" }, { model: Workspace, as: "workspace" }],
+    const attachments = await Attachment.findAll({
+      where: { articleId: article.id, articleVersionId: version.id },
     });
+
+    applyVersion(article, version, attachments);
 
     emit("article-created", {
       type: "created",
@@ -123,7 +238,13 @@ export async function createArticle(req, res, next) {
       timestamp: now.toISOString(),
     });
 
-    res.status(201).json(fullArticle);
+    res.status(201).json({
+      ...serializeArticle(article),
+      viewVersion: 1,
+      latestVersion: 1,
+      isLatest: true,
+      readonly: false,
+    });
   } catch (e) {
     next(e);
   }
@@ -142,14 +263,17 @@ export async function updateArticle(req, res, next) {
     }
 
     const article = await Article.findByPk(id, {
-      include: [{ model: Attachment, as: "attachments" }],
+      include: [{ model: Comment, as: "comments" }],
     });
 
     if (!article) {
       return next({ status: 404, message: "Article not found" });
     }
 
-    // Update fields
+    const now = new Date();
+
+    const prevVersionNum = article.currentVersion || 1;
+
     if (value.title) article.title = value.title;
     if (value.content) article.content = value.content;
     if (value.workspaceId) {
@@ -160,11 +284,46 @@ export async function updateArticle(req, res, next) {
       article.workspaceId = value.workspaceId;
     }
 
-    const now = new Date();
-    article.updatedAt = now;
+    const newVersion = prevVersionNum + 1;
 
-    // Handle deleted attachments
-    const articleFolder = path.join(uploadDir, String(id));
+    const version = await ArticleVersion.create({
+      articleId: id,
+      version: newVersion,
+      title: article.title,
+      content: article.content,
+      workspaceId: article.workspaceId,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    article.currentVersion = newVersion;
+    article.updatedAt = now;
+    await article.save();
+
+    const prevVersion = await ArticleVersion.findOne({
+      where: { articleId: id, version: prevVersionNum },
+    });
+
+    if (prevVersion) {
+      const prevAttachments = await Attachment.findAll({
+        where: {
+          articleId: id,
+          articleVersionId: prevVersion.id,
+        },
+      });
+
+      for (const att of prevAttachments) {
+        await Attachment.create({
+          articleId: id,
+          articleVersionId: version.id,
+          serverFilename: att.serverFilename,
+          originalFilename: att.originalFilename,
+          mimeType: att.mimeType,
+          uploadedAt: att.uploadedAt,
+        });
+      }
+    }
+
     if (value.deleted) {
       let removedList = [];
       try {
@@ -178,15 +337,12 @@ export async function updateArticle(req, res, next) {
       }
 
       for (const filename of removedList) {
-        const filePath = path.join(articleFolder, filename);
-        try {
-          await fs.unlink(filePath);
-        } catch (err) {
-          if (err.code !== "ENOENT") throw err;
-        }
-
         await Attachment.destroy({
-          where: { articleId: id, serverFilename: filename },
+          where: {
+            articleId: id,
+            articleVersionId: version.id,
+            serverFilename: filename,
+          },
         });
       }
     }
@@ -196,6 +352,7 @@ export async function updateArticle(req, res, next) {
     for (const f of files) {
       await Attachment.create({
         articleId: id,
+        articleVersionId: version.id,
         serverFilename: f.filename,
         originalFilename: f.originalname,
         mimeType: f.mimetype,
@@ -203,15 +360,11 @@ export async function updateArticle(req, res, next) {
       });
     }
 
-    await article.save();
-
-    const fullArticle = await Article.findByPk(id, {
-      include: [
-        { model: Attachment, as: "attachments" },
-        { model: Comment, as: "comments" },
-        { model: Workspace, as: "workspace", attributes: ["id", "name", "label"] },
-      ],
+    const attachments = await Attachment.findAll({
+      where: { articleId: id, articleVersionId: version.id },
     });
+
+    applyVersion(article, version, attachments);
 
     emit("article-updated", {
       type: "updated",
@@ -220,7 +373,13 @@ export async function updateArticle(req, res, next) {
       timestamp: now.toISOString(),
     });
 
-    res.json(fullArticle);
+    res.json({
+      ...serializeArticle(article),
+      viewVersion: newVersion,
+      latestVersion: newVersion,
+      isLatest: true,
+      readonly: false,
+    });
   } catch (e) {
     next(e);
   }

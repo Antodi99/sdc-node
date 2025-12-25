@@ -1,6 +1,6 @@
 import { readdirSync } from "fs";
 import { join, dirname, basename as pathBasename } from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import { createRequire } from "module";
 import Sequelize, { DataTypes } from "sequelize";
 
@@ -38,7 +38,8 @@ const files = readdirSync(__dirname).filter(
 );
 
 for (const file of files) {
-  const modelModule = await import(join(__dirname, file));
+  const modelPath = pathToFileURL(join(__dirname, file)).href;
+  const modelModule = await import(modelPath)
 
   // Support both: export default and module.exports
   const modelFactory = modelModule.default || modelModule;
