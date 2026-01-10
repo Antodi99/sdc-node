@@ -29,7 +29,7 @@ async function submit() {
 
     router.push("/login");
   } catch (e) {
-    error.value = e?.response?.data?.message || "Registration failed";
+    error.value = e?.response?.data?.error?.message || "Registration failed";
   } finally {
     loading.value = false;
   }
