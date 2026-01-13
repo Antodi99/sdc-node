@@ -1,7 +1,11 @@
 import { Model } from "sequelize";
 
 export default (sequelize, DataTypes) => {
-  class User extends Model { }
+  class User extends Model {
+    static associate(models) {
+      User.hasMany(models.Article, { foreignKey: "creatorId", as: "articles" });
+    }
+  }
 
   User.init(
     {
@@ -13,6 +17,11 @@ export default (sequelize, DataTypes) => {
       password: {
         type: DataTypes.STRING,
         allowNull: false,
+      },
+      role: {
+        type: DataTypes.ENUM("admin", "user"),
+        allowNull: false,
+        defaultValue: "user",
       },
     },
     {

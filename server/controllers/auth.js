@@ -7,7 +7,7 @@ const { User } = db;
 
 function signToken(user) {
   return jwt.sign(
-    { sub: user.id, email: user.email },
+    { sub: user.id, email: user.email, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: Number(process.env.JWT_EXPIRES) } // seconds
   );
@@ -69,6 +69,7 @@ export async function login(req, res, next) {
       user: {
         id: user.id,
         email: user.email,
+        role: user.role
       },
     });
   } catch (e) {

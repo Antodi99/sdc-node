@@ -2,9 +2,11 @@
 import { ref, onMounted, computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import axios from "../plugins/axios";
+import { useAuth } from "../composables/useAuth";
 
 const route = useRoute();
 const router = useRouter();
+const { user, isAdmin } = useAuth();
 
 const article = ref(null);
 const error = ref(null);
@@ -22,6 +24,11 @@ const currentVersion = ref(null);
 
 const selectedVersion = computed(() => {
   return versions.value.find((v) => v.version === currentVersion.value) || null;
+});
+
+const canEdit = computed(() => {
+  if (!article.value) return false;
+  return isAdmin.value || article.value.creatorId === user.value?.id;
 });
 
 async function load() {
@@ -183,14 +190,19 @@ onMounted(async () => {
 
       <div style="margin-top: 1rem">
         <router-link
-          v-if="article?.viewVersion === article?.latestVersion"
+          v-if="canEdit"
           class="button"
           :to="`/articles/${article?.id}/edit`"
         >
           Edit
         </router-link>
 
-        <button class="button secondary" style="margin-left: 8px" @click="del">
+        <button
+          v-if="canEdit"
+          class="button secondary"
+          style="margin-left: 8px"
+          @click="del"
+        >
           Delete
         </button>
       </div>

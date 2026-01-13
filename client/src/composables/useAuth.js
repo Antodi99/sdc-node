@@ -19,7 +19,16 @@ function isTokenValid(rawToken) {
   }
 }
 
+const payload = computed(() => decodeJwt(token.value));
+
+const user = computed(() => {
+  const p = payload.value;
+  if (!p) return null;
+  return { id: p.sub, email: p.email, role: p.role };
+});
+
 const isAuthenticated = computed(() => isTokenValid(token.value));
+const isAdmin = computed(() => user.value?.role === "admin");
 
 function setToken(newToken) {
   token.value = newToken;
@@ -34,7 +43,9 @@ function logout() {
 export function useAuth() {
   return {
     token,
+    user,
     isAuthenticated,
+    isAdmin,
     setToken,
     logout,
   };

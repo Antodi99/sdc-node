@@ -8,6 +8,11 @@ export default (sequelize, DataTypes) => {
         as: "workspace"
       });
 
+      Article.belongsTo(models.User, {
+        foreignKey: "creatorId",
+        as: "creator",
+      });
+
       Article.hasMany(models.Comment, {
         foreignKey: "articleId",
         as: "comments",
@@ -29,6 +34,10 @@ export default (sequelize, DataTypes) => {
       workspaceId: {
         type: DataTypes.INTEGER,
         allowNull: false,
+      },
+      creatorId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
       },
       currentVersion: {
         type: DataTypes.INTEGER,
