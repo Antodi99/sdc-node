@@ -1,6 +1,7 @@
 import fsSync from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import { Op, literal } from "sequelize";
 import { emit } from "../sockets/io.js"
 import { createSchema, updateSchema } from '../validators/articleSchemas.js'
 import { uploadDir } from '../config/index.js'
@@ -17,25 +18,50 @@ function applyVersion(article, version, attachments) {
 
 export async function listArticles(req, res, next) {
   try {
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const offset = (page - 1) * limit;
+
     const where = {};
+
     if (req.query.workspaceId) {
       where.workspaceId = Number(req.query.workspaceId);
     }
 
-    const articles = await Article.findAll({
+    if (req.query.q) {
+      const q = req.query.q.trim().replace(/'/g, "");
+
+      where[Op.or] = [
+        literal(`
+          similarity(
+            lower("Article"."title"),
+            lower('${q}')
+          ) > 0.3
+        `),
+        literal(`
+          similarity(
+            lower(regexp_replace("Article"."content", '<[^>]*>', '', 'g')),
+            lower('${q}')
+          ) > 0.3
+        `),
+      ];
+    }
+
+    const { rows, count } = await Article.findAndCountAll({
       where,
-      include: [
-        {
-          model: Workspace,
-          as: "workspace",
-          attributes: ["id", "name", "label"],
-        },
-      ],
+      attributes: ["id", "title", "createdAt", "workspaceId"],
       order: [["createdAt", "DESC"]],
-      attributes: ["id", "title", "createdAt", "updatedAt", "workspaceId", "currentVersion"],
+      limit,
+      offset,
     });
 
-    res.json(articles);
+    res.json({
+      items: rows,
+      page,
+      limit,
+      total: count,
+      pages: Math.ceil(count / limit),
+    });
   } catch (e) {
     next(e);
   }
