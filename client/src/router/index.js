@@ -9,6 +9,7 @@ import CreateWorkspace from "../pages/CreateWorkspace.vue";
 import EditWorkspace from "../pages/EditWorkspace.vue";
 import Login from "../pages/Login.vue";
 import Register from "../pages/Register.vue";
+import Users from "../pages/Users.vue";
 
 const routes = [
   { path: "/", component: Home },
@@ -20,11 +21,26 @@ const routes = [
   { path: "/workspaces", component: Workspaces },
   { path: "/workspaces/create", component: CreateWorkspace },
   { path: "/workspaces/:id/edit", component: EditWorkspace },
+  { path: "/users", component: Users, meta: { adminOnly: true } },
 ];
 
-const router = createRouter({
-  history: createWebHistory(),
-  routes,
+const router = createRouter({ history: createWebHistory(), routes });
+
+router.beforeEach((to) => {
+  const { isAuthenticated, isAdmin, logout } = useAuth();
+
+  if (to.meta.public) return true;
+
+  if (!isAuthenticated.value) {
+    logout();
+    return "/login";
+  }
+
+  if (to.meta.adminOnly && !isAdmin.value) {
+    return "/";
+  }
+
+  return true;
 });
 
 router.beforeEach((to) => {

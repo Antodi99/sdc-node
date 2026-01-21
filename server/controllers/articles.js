@@ -186,7 +186,7 @@ export async function createArticle(req, res, next) {
       title,
       content,
       workspaceId,
-      currentVersion: 1,
+      creatorId: req.user.id,
       createdAt: now,
       updatedAt: now,
     });
@@ -268,6 +268,10 @@ export async function updateArticle(req, res, next) {
 
     if (!article) {
       return next({ status: 404, message: "Article not found" });
+    }
+
+    if (req.user.role !== "admin" && article.creatorId !== req.user.id) {
+      return next({ status: 403, message: "Forbidden" });
     }
 
     const now = new Date();

@@ -1,6 +1,8 @@
 export function serializeArticle(article) {
   const plain = article.toJSON();
 
+  plain.creatorId = plain.creatorId ?? plain.creator_id ?? null;
+
   // Attachments
   plain.attachments = (plain.attachments || []).map(att => ({
     id: att.id,

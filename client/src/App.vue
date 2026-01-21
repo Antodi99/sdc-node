@@ -5,7 +5,7 @@ import { io } from "socket.io-client";
 import { useAuth } from "./composables/useAuth";
 
 const router = useRouter();
-const { isAuthenticated, token, logout } = useAuth();
+const { isAuthenticated, isAdmin, token, logout } = useAuth();
 
 const notifications = ref([]);
 let socket = null;
@@ -76,6 +76,9 @@ watch(isAuthenticated, (loggedIn) => {
         <router-link v-if="isAuthenticated" to="/create">Create</router-link>
         <router-link v-if="isAuthenticated" to="/workspaces"
           >Workspaces</router-link
+        >
+        <router-link v-if="isAuthenticated && isAdmin" to="/users"
+          >Users</router-link
         >
       </nav>
 
