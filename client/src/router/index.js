@@ -43,4 +43,17 @@ router.beforeEach((to) => {
   return true;
 });
 
+router.beforeEach((to) => {
+  const { isAuthenticated, logout } = useAuth();
+
+  if (to.meta.public) return true;
+
+  if (!isAuthenticated.value) {
+    logout();
+    return "/login";
+  }
+
+  return true;
+});
+
 export default router;
