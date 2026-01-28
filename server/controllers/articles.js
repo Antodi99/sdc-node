@@ -1,14 +1,16 @@
 import fsSync from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
+import PDFDocument from "pdfkit";
 import { Op, literal } from "sequelize";
 import { emit } from "../sockets/io.js"
 import { createSchema, updateSchema } from '../validators/articleSchemas.js'
+import { renderHtmlToPdf } from "../utils/htmlToPdf.js";
 import { uploadDir } from '../config/index.js'
 import { serializeArticle } from "../serializers/articleSerializer.js";
 import db from "../database/models/index.js";
 
-const { Article, Workspace, Attachment, Comment, ArticleVersion } = db;
+const { Article, Workspace, Attachment, Comment, ArticleVersion, User } = db;
 
 function applyVersion(article, version, attachments) {
   article.setDataValue("title", version.title);
@@ -452,3 +454,77 @@ export async function deleteArticle(req, res, next) {
     next(e);
   }
 }
+
+export async function exportArticlePdf(req, res) {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ message: "Invalid id" });
+    }
+
+    const article = await Article.findByPk(id, {
+      include: [
+        { model: User, as: "creator", attributes: ["email"] },
+        { model: Workspace, as: "workspace", attributes: ["label"] },
+      ],
+    });
+
+    if (!article) {
+      return res.status(404).json({ message: "Article not found" });
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="article-${article.id}.pdf"`
+    );
+
+    const doc = new PDFDocument({
+      size: "A4",
+      margins: { top: 50, bottom: 50, left: 50, right: 50 },
+    });
+
+    doc.pipe(res);
+
+    // Title
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(20)
+      .text(article.title, { align: "center" });
+
+    doc.moveDown();
+
+    // Meta
+    doc
+      .font("Helvetica")
+      .fontSize(10)
+      .fillColor("gray")
+      .text(
+        `Article #${article.id} · ${new Date(
+          article.createdAt
+        ).toLocaleString()}`,
+        { align: "center" }
+      )
+      .text(
+        `Author: ${article.creator?.email || "Unknown"} · Workspace: ${article.workspace?.label || "-"
+        }`,
+        { align: "center" }
+      );
+
+    doc.moveDown(2);
+    doc.fillColor("black").fontSize(12);
+
+    // Content
+    renderHtmlToPdf(doc, article.content || "");
+
+    doc.end();
+  } catch (e) {
+    if (res.headersSent) {
+      console.error("PDF generation error:", e);
+      return;
+    }
+
+    res.status(500).json({ message: "Failed to generate PDF" });
+  }
+}
+
