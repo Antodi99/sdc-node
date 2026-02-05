@@ -58,7 +58,7 @@ async function viewVersion() {
 
   try {
     const { data } = await axios.get(
-      `/articles/${route.params.id}/versions/${currentVersion.value}`
+      `/articles/${route.params.id}/versions/${currentVersion.value}`,
     );
     article.value = data;
     comments.value = data.comments || [];
@@ -143,7 +143,7 @@ async function saveEditComment(id) {
     comments.value = comments.value.map((c) =>
       c.id === id
         ? { ...c, content: data.content, updatedAt: data.updatedAt }
-        : c
+        : c,
     );
 
     editingCommentId.value = null;
@@ -152,6 +152,34 @@ async function saveEditComment(id) {
     commentError.value = e?.response?.data?.error?.message || e.message;
   } finally {
     editingLoading.value = false;
+  }
+}
+
+async function exportPdf() {
+  try {
+    const response = await axios.get(
+      `/articles/${article.value.id}/export/pdf`,
+      {
+        responseType: "blob",
+      },
+    );
+
+    const blob = new Blob([response.data], {
+      type: "application/pdf",
+    });
+
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `article-${article.value.id}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Failed to export PDF");
   }
 }
 
@@ -205,6 +233,8 @@ onMounted(async () => {
         >
           Delete
         </button>
+
+        <button class="button secondary" @click="exportPdf">Export PDF</button>
       </div>
 
       <div

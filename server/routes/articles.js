@@ -8,6 +8,7 @@ import {
   deleteArticle,
   listArticleVersions,
   getArticleVersion,
+  exportArticlePdf,
 } from '../controllers/articles.js'
 import { createComment } from '../controllers/comments.js'
 
@@ -23,5 +24,7 @@ router.put('/:id', uploadMany, updateArticle)
 router.delete('/:id', deleteArticle)
 
 router.post('/:id/comments', createComment)
+
+router.get('/:id/export/pdf', exportArticlePdf);
 
 export default router
